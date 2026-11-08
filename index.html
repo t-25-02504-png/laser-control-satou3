@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 12px; background: #eceff1; color: #333; }
+    
+    /* グリッドレイアウト（レスポンシブ基本構造） */
+    .grid { 
+      display: grid; 
+      grid-template-columns: 1fr; 
+      gap: 12px; 
+    }
+
+    /* PC・大型画面（1025px以上）: 3列レイアウト */
+    @media (min-width: 1025px) {
+      .grid { grid-template-columns: 280px 1fr 340px; }
+      .col-files { order: 1; }
+      .col-preview { order: 2; }
+      .col-controls { order: 3; }
+    }
+
+    /* タブレット・Chromebook（769px〜1024px）: 2列レイアウト */
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .col-preview { grid-column: span 2; order: 1; }
+      .col-files { order: 2; }
+      .col-controls { order: 3; }
+    }
+
+    /* モバイル・iPad縦持ち（768px以下）: 1列レイアウト（プレビュー最優先） */
+    @media (max-width: 768px) {
+      .col-preview { order: 1; }
+      .col-controls { order: 2; }
+      .col-files { order: 3; }
+    }
+
+    .card { background: white; padding: 12px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    h3 { margin-top: 0; font-size: 0.95rem; border-bottom: 2px solid #007bff; padding-bottom: 5px; }
+    
+    /* タッチ操作対応のボタン・フォーム */
+    button { 
+      padding: 10px 14px; 
+      margin: 3px 1px; 
+      border: none; 
+      border-radius: 6px; 
+      background: #007bff; 
+      color: white; 
+      cursor: pointer; 
+      font-weight: bold; 
+      font-size: 0.9rem;
+      min-height: 44px;
+      touch-action: manipulation;
+    }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-danger { background: #dc3545; }
+    .btn-success { background: #28a745; }
+    .btn-warning { background: #ffc107; color: #333; }
+    .btn-info { background: #17a2b8; color: white; }
+    
+    input, select {
+      font-size: 16px !important; /* iOSの自動ズーム防止 */
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    .file-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.85rem; }
+    .file-item:hover { background: #e9ecef; }
+    
+    #canvas-container { text-align: center; background: #fafafa; border: 1px dashed #ccc; min-height: 220px; padding: 10px; display: flex; align-items: center; justify-content: center; }
+    #svgPreview svg { max-width: 100%; height: auto; max-height: 300px; }
+    
+    .jog-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; max-width: 200px; margin: 0 auto; }
+    .jog-grid button { min-height: 48px; width: 100%; }
+
+    .form-row { margin-bottom: 8px; font-size: 0.85rem; display: flex; align-items: center; justify-content: space-between; }
+    .form-row label { width: 110px; font-weight: 500; }
+    .form-row input { width: 90px; text-align: right; }
+
+    .setting-box { padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+    .box-black { background: #f8f9fa; border: 1px solid #dee2e6; }
+    .box-red { background: #fff5f5; border: 1px solid #feb2b2; }
+    .box-auto { background: #e0f7fa; border: 1px solid #80deea; }
+    
+    #console { background: #222; color: #00ff00; font-family: monospace; font-size: 0.75rem; height: 100px; overflow-y: scroll; padding: 8px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <h2 style="font-size: 1.2rem; margin: 0 0 10px 0; text-align: center;">レーザー加工機（A1 Pro）Webコントローラー</h2>
+
+  <div class="grid">
+    <!-- データプレビュー & 加工実行 -->
+    <div class="card col-preview">
+      <h3>👁️ データプレビュー & 加工開始</h3>
+      <div id="canvas-container">
+        <div id="svgPreview">左のリストからファイルを選択してください</div>
+      </div>
+      <br>
+      <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 5px;">
+        <button id="btnFrame" class="btn-warning" onclick="doFraming()" disabled>🔲 位置確認</button>
+        <button id="btnStart" class="btn-success" onclick="startJob()" disabled>▶️ 加工スタート</button>
+        <button id="btnStop" class="btn-danger" onclick="stopJob()" disabled>⏹️ 緊急停止</button>
+      </div>
+    </div>
+
+    <!-- 接続・フォーカス・条件設定・手動操作 -->
+    <div class="card col-controls">
+      <h3>🔌 接続 & フォーカス</h3>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+        <button id="btnConnect" onclick="toggleConnect()">USB接続</button>
+        <span id="connStatus" style="color: red; font-weight: bold;">未接続</span>
+      </div>
+
+      <!-- 🎯 オートフォーカス制御エリア -->
+      <div class="setting-box box-auto">
+        <b>🎯 オートフォーカス（自動焦点調整）</b>
+        <div style="margin-top: 5px; display: flex; align-items: center; gap: 8px;">
+          <button id="btnFocus" class="btn-info" onclick="doAutoFocus()" disabled style="padding: 6px 10px;">手動実行</button>
+          <label style="font-size: 0.8rem;"><input type="checkbox" id="chkAutoFocus" checked> スタート時に自動実行</label>
+        </div>
+      </div>
+
+      <hr style="margin: 10px 0;">
+      <h3>⚙️ 加工条件設定（材料連動）</h3>
+
+      <div class="form-row">
+        <label style="font-weight: bold;">選択中の材料:</label>
+        <select id="materialPreset" onchange="applyMaterialPreset()" style="flex: 1; font-weight: bold;">
+          <option value="MDF3">MDF (3mm)</option>
+          <option value="PLYWOOD3">シナ合板 (3mm)</option>
+          <option value="ACRYLIC3">アクリル (3mm)</option>
+          <option value="PAPER">厚紙・色画用紙</option>
+          <option value="CUSTOM">手動（カスタム）</option>
+        </select>
+      </div>
+      
+      <!-- 彫り込み（黒）設定 -->
+      <div class="setting-box box-black">
+        <b style="color:#000; font-size:0.85rem;">⚫ 彫り込み（黒線 / 刻印）</b>
+        <div class="form-row">
+          <label>速度(F):</label>
+          <div><input type="number" id="feedRateBlack" value="1800"> mm/min</div>
+        </div>
+        <div class="form-row">
+          <label>出力(S):</label>
+          <div><input type="number" id="laserPowerBlack" value="30" min="1" max="100"> %</div>
+        </div>
+      </div>
+
+      <!-- 切り抜き（赤）設定 -->
+      <div class="setting-box box-red">
+        <b style="color:#dc3545; font-size:0.85rem;">🔴 切り抜き（赤線 / 外枠）</b>
+        <div class="form-row">
+          <label>速度(F):</label>
+          <div><input type="number" id="feedRateRed" value="200"> mm/min</div>
+        </div>
+        <div class="form-row">
+          <label>出力(S):</label>
+          <div><input type="number" id="laserPowerRed" value="90" min="1" max="100"> %</div>
+        </div>
+        <div class="form-row">
+          <label>パス回数:</label>
+          <div><input type="number" id="passesRed" value="1" min="1" max="5"> 回</div>
+        </div>
+      </div>
+
+      <hr style="margin: 10px 0;">
+      <h3>🎮 手動操作 (Jog)</h3>
+      <div class="jog-grid">
+        <div></div><button onclick="sendGcode('G91 G0 Y10 F2000 G90')">▲</button><div></div>
+        <button onclick="sendGcode('G91 G0 X-10 F2000 G90')">◀</button>
+        <button onclick="sendGcode('G92 X0 Y0')" style="font-size:0.75rem;">原点</button>
+        <button onclick="sendGcode('G91 G0 X10 F2000 G90')">▶</button>
+        <div></div><button onclick="sendGcode('G91 G0 Y-10 F2000 G90')">▼</button><div></div>
+      </div>
+
+      <hr style="margin: 10px 0;">
+      <h3>📟 ログ</h3>
+      <div id="console"></div>
+    </div>
+
+    <!-- 提出データ選択 -->
+    <div class="card col-files">
+      <h3>📁 提出ファイル一覧</h3>
+      <button onclick="loadFileList()" style="width: 100%;">再読み込み</button>
+      <div id="fileList" style="max-height: 350px; overflow-y: auto; margin-top: 10px;">ファイル読込中...</div>
+    </div>
+  </div>
+
+  <script>
+    let port, reader, writer;
+    let isConnected = false;
+    let currentSvgText = "";
+    let boundingBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    let gcodeQueue = [];
+    let isProcessing = false;
+
+    const MATERIAL_PRESETS = {
+      "MDF3":      { fBlack: 1800, sBlack: 30, fRed: 200, sRed: 90, pRed: 1 },
+      "PLYWOOD3":  { fBlack: 1800, sBlack: 30, fRed: 250, sRed: 85, pRed: 1 },
+      "ACRYLIC3":  { fBlack: 1200, sBlack: 35, fRed: 150, sRed: 95, pRed: 2 },
+      "PAPER":     { fBlack: 2500, sBlack: 15, fRed: 800, sRed: 40, pRed: 1 }
+    };
+
+    window.onload = function() {
+      loadFileList();
+      if (!navigator.serial) {
+        log("⚠️ この端末/ブラウザはUSBシリアル通信に対応していません（閲覧モード）");
+      }
+    };
+
+    function loadFileList() {
+      document.getElementById('fileList').innerText = "読み込み中...";
+      google.script.run.withSuccessHandler(files => {
+        const listDiv = document.getElementById('fileList');
+        listDiv.innerHTML = "";
+        if(files.length === 0) {
+          listDiv.innerText = "提出されたファイルはありません";
+          return;
+        }
+        files.forEach(f => {
+          const item = document.createElement('div');
+          item.className = 'file-item';
+          item.innerHTML = `<b>${f.name}</b><br><small>材料: ${f.material} | ${f.date}</small>`;
+          item.onclick = () => {
+            selectFile(f.id);
+            autoSelectMaterial(f.material);
+          };
+          listDiv.appendChild(item);
+        });
+      }).getSubmittedFiles();
+    }
+
+    function autoSelectMaterial(materialStr) {
+      const select = document.getElementById('materialPreset');
+      if (materialStr.includes("MDF")) select.value = "MDF3";
+      else if (materialStr.includes("合板")) select.value = "PLYWOOD3";
+      else if (materialStr.includes("アクリル")) select.value = "ACRYLIC3";
+      else if (materialStr.includes("画用紙") || materialStr.includes("紙")) select.value = "PAPER";
+      
+      applyMaterialPreset();
+    }
+
+    function applyMaterialPreset() {
+      const selected = document.getElementById('materialPreset').value;
+      const preset = MATERIAL_PRESETS[selected];
+      if (!preset) return;
+
+      document.getElementById('feedRateBlack').value = preset.fBlack;
+      document.getElementById('laserPowerBlack').value = preset.sBlack;
+      document.getElementById('feedRateRed').value = preset.fRed;
+      document.getElementById('laserPowerRed').value = preset.sRed;
+      document.getElementById('passesRed').value = preset.pRed;
+      log(`📋 材料プリセット適用: ${selected}`);
+    }
+
+    function selectFile(fileId) {
+      log("ファイル取得中...");
+      google.script.run.withSuccessHandler(svgText => {
+        currentSvgText = svgText;
+        document.getElementById('svgPreview').innerHTML = svgText;
+        parseSvgBoundingBox();
+        updateBtnStates();
+        log("SVGロード完了");
+      }).getSvgContent(fileId);
+    }
+
+    async function toggleConnect() {
+      if (!navigator.serial) {
+        alert("ご利用の端末/ブラウザ（iPad等）はUSBシリアル通信をサポートしていません。ChromebookまたはPCのGoogle Chromeをご利用ください。");
+        return;
+      }
+
+      if (isConnected) {
+        if (reader) await reader.cancel();
+        if (port) await port.close();
+        updateConnState(false);
+        return;
+      }
+
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+        
+        const textEncoder = new TextEncoderStream();
+        textEncoder.readable.pipeTo(port.writable);
+        writer = textEncoder.writable.getWriter();
+
+        readLoop();
+        updateConnState(true);
+        sendGcode("G21");
+        sendGcode("G90");
+      } catch (err) {
+        log("接続エラー: " + err);
+      }
+    }
+
+    function updateConnState(connected) {
+      isConnected = connected;
+      document.getElementById('connStatus').innerText = connected ? "接続済み" : "未接続";
+      document.getElementById('connStatus').style.color = connected ? "green" : "red";
+      document.getElementById('btnConnect').innerText = connected ? "切断" : "USB接続";
+      updateBtnStates();
+    }
+
+    function updateBtnStates() {
+      const ready = isConnected && currentSvgText !== "";
+      document.getElementById('btnFrame').disabled = !ready;
+      document.getElementById('btnStart').disabled = !ready;
+      document.getElementById('btnFocus').disabled = !isConnected;
+    }
+
+    async function readLoop() {
+      const textDecoder = new TextEncoderStream();
+      port.readable.pipeTo(textDecoder.writable);
+      reader = textDecoder.readable.getReader();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          log("< " + value.trim());
+          if (isProcessing && value.includes("ok")) {
+            sendNextGcodeLine();
+          }
+        }
+      }
+    }
+
+    async function sendGcode(cmd) {
+      if (!writer) return;
+      log("> " + cmd);
+      await writer.write(cmd + "\n");
+    }
+
+    function doAutoFocus() {
+      log("🎯 オートフォーカスを開始します...");
+      sendGcode("G28 Z");
+    }
+
+    function parseSvgBoundingBox() {
+      const svg = document.querySelector("#svgPreview svg");
+      if(!svg) return;
+      
+      const paths = svg.querySelectorAll("path, rect, circle, ellipse, line, polygon, polyline");
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+      paths.forEach(p => {
+        const bbox = p.getBBox();
+        if(bbox.x < minX) minX = bbox.x;
+        if(bbox.y < minY) minY = bbox.y;
+        if((bbox.x + bbox.width) > maxX) maxX = bbox.x + bbox.width;
+        if((bbox.y + bbox.height) > maxY) maxY = bbox.y + bbox.height;
+      });
+
+      const scale = 0.264; 
+      boundingBox = {
+        minX: Math.max(0, Math.round(minX * scale)),
+        minY: Math.max(0, Math.round(minY * scale)),
+        maxX: Math.round(maxX * scale),
+        maxY: Math.round(maxY * scale)
+      };
+      log(`サイズ範囲: X(${boundingBox.minX}〜${boundingBox.maxX}mm), Y(${boundingBox.minY}〜${boundingBox.maxY}mm)`);
+    }
+
+    function isRedElement(el) {
+      const stroke = (el.getAttribute("stroke") || el.style.stroke || "").toLowerCase().replace(/\s+/g, '');
+      const fill = (el.getAttribute("fill") || el.style.fill || "").toLowerCase().replace(/\s+/g, '');
+      const redKeywords = ["red", "#ff0000", "#f00", "rgb(255,0,0)"];
+      return redKeywords.some(kw => stroke.includes(kw) || fill.includes(kw));
+    }
+
+    function doFraming() {
+      const gcodes = [
+        "M3 S1",
+        `G0 X${boundingBox.minX} Y${boundingBox.minY} F2000`,
+        `G1 X${boundingBox.maxX} Y${boundingBox.minY} F2000`,
+        `G1 X${boundingBox.maxX} Y${boundingBox.maxY} F2000`,
+        `G1 X${boundingBox.minX} Y${boundingBox.maxY} F2000`,
+        `G1 X${boundingBox.minX} Y${boundingBox.minY} F2000`,
+        "M5"
+      ];
+      startGcodeQueue(gcodes);
+    }
+
+    function startJob() {
+      const fBlack = document.getElementById('feedRateBlack').value;
+      const sBlack = Math.round((document.getElementById('laserPowerBlack').value / 100) * 1000);
+
+      const fRed = document.getElementById('feedRateRed').value;
+      const sRed = Math.round((document.getElementById('laserPowerRed').value / 100) * 1000);
+      const passesRed = parseInt(document.getElementById('passesRed').value) || 1;
+
+      const autoFocusEnabled = document.getElementById('chkAutoFocus').checked;
+
+      const svg = document.querySelector("#svgPreview svg");
+      const elements = Array.from(svg.querySelectorAll("path, rect, circle, ellipse, line, polygon, polyline"));
+
+      const redElements = [];
+      const blackElements = [];
+
+      elements.forEach(el => {
+        if (isRedElement(el)) {
+          redElements.push(el);
+        } else {
+          blackElements.push(el);
+        }
+      });
+
+      let gcodes = ["G21", "G90", "M5"];
+
+      if (autoFocusEnabled) {
+        gcodes.push("; --- オートフォーカス実行 ---");
+        gcodes.push("G28 Z");
+        gcodes.push("G4 P2");
+      }
+
+      if (blackElements.length > 0) {
+        gcodes.push("; --- 彫り込み (黒) 開始 ---");
+        blackElements.forEach(el => {
+          generateGcodeForElement(el, gcodes, fBlack, sBlack);
+        });
+      }
+
+      if (redElements.length > 0) {
+        gcodes.push("; --- 切り抜き (赤) 開始 ---");
+        for (let p = 0; p < passesRed; p++) {
+          redElements.forEach(el => {
+            generateGcodeForElement(el, gcodes, fRed, sRed);
+          });
+        }
+      }
+
+      gcodes.push("M5");
+      gcodes.push("G0 X0 Y0");
+      
+      log(`G-code生成完了 (AF: ${autoFocusEnabled ? "有効" : "無効"}, 彫り込み: ${blackElements.length}件, 切り抜き: ${redElements.length}件)`);
+      startGcodeQueue(gcodes);
+    }
+
+    function generateGcodeForElement(el, gcodeArray, speed, power) {
+      const len = el.getTotalLength ? el.getTotalLength() : 0;
+      if (len === 0) return;
+
+      const step = 0.5;
+      const p0 = el.getPointAtLength(0);
+      
+      gcodeArray.push(`G0 X${(p0.x * 0.264).toFixed(2)} Y${(p0.y * 0.264).toFixed(2)}`);
+      gcodeArray.push(`M3 S${power}`);
+
+      for (let i = step; i <= len; i += step) {
+        const pt = el.getPointAtLength(i);
+        gcodeArray.push(`G1 X${(pt.x * 0.264).toFixed(2)} Y${(pt.y * 0.264).toFixed(2)} F${speed}`);
+      }
+      gcodeArray.push("M5");
+    }
+
+    function startGcodeQueue(list) {
+      gcodeQueue = list;
+      isProcessing = true;
+      document.getElementById('btnStop').disabled = false;
+      sendNextGcodeLine();
+    }
+
+    function sendNextGcodeLine() {
+      if (gcodeQueue.length > 0 && isProcessing) {
+        const line = gcodeQueue.shift();
+        if (line.startsWith(";")) {
+          sendNextGcodeLine();
+          return;
+        }
+        sendGcode(line);
+      } else {
+        isProcessing = false;
+        document.getElementById('btnStop').disabled = true;
+        log("🎉 処理が完了しました");
+      }
+    }
+
+    function stopJob() {
+      isProcessing = false;
+      gcodeQueue = [];
+      sendGcode("M5");
+      sendGcode("G0 X0 Y0");
+      document.getElementById('btnStop').disabled = true;
+      log("🚨 加工を停止しました");
+    }
+
+    function log(text) {
+      const consoleDiv = document.getElementById('console');
+      consoleDiv.innerHTML += text + "<br>";
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    }
+  </script>
+</body>
+</html>
