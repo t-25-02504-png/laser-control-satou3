@@ -192,6 +192,8 @@
   </div>
 
   <script>
+    // ★作成したGASのWebアプリURL（デプロイしたURL）をここに貼り付けます
+    const GAS_API_URL = "https://script.google.com/a/macros/kyoiku-nakano.net/s/AKfycbyR7E8fhe9zp5X2r3ReHZhsAKZeOCLGIQ6oGiCU_x8-_1Fh-7mF_g8qITvsiJ_FcGxpnQ/exec";
     let port, reader, writer;
     let isConnected = false;
     let currentSvgText = "";
@@ -213,28 +215,57 @@
       }
     };
 
+// 提出ファイル一覧の取得 (GitHub -> GAS API通信版)
     function loadFileList() {
       document.getElementById('fileList').innerText = "読み込み中...";
-      google.script.run.withSuccessHandler(files => {
-        const listDiv = document.getElementById('fileList');
-        listDiv.innerHTML = "";
-        if(files.length === 0) {
-          listDiv.innerText = "提出されたファイルはありません";
-          return;
-        }
-        files.forEach(f => {
-          const item = document.createElement('div');
-          item.className = 'file-item';
-          item.innerHTML = `<b>${f.name}</b><br><small>材料: ${f.material} | ${f.date}</small>`;
-          item.onclick = () => {
-            selectFile(f.id);
-            autoSelectMaterial(f.material);
-          };
-          listDiv.appendChild(item);
+      
+      fetch(`${GAS_API_URL}?action=getFiles`)
+        .then(response => response.json())
+        .then(files => {
+          const listDiv = document.getElementById('fileList');
+          listDiv.innerHTML = "";
+          if (!files || files.length === 0) {
+            listDiv.innerText = "提出されたファイルはありません";
+            return;
+          }
+          files.forEach(f => {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.innerHTML = `<b>${f.name}</b><br><small>材料: ${f.material} | ${f.date}</small>`;
+            item.onclick = () => {
+              selectFile(f.id);
+              autoSelectMaterial(f.material);
+            };
+            listDiv.appendChild(item);
+          });
+        })
+        .catch(err => {
+          document.getElementById('fileList').innerText = "取得エラーが発生しました";
+          log("通信エラー: " + err);
         });
-      }).getSubmittedFiles();
     }
 
+    // 選択ファイルのSVG取得 (GitHub -> GAS API通信版)
+    function selectFile(fileId) {
+      log("ファイル取得中...");
+      
+      fetch(`${GAS_API_URL}?action=getSvg&fileId=${fileId}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.svg) {
+            currentSvgText = data.svg;
+            document.getElementById('svgPreview').innerHTML = data.svg;
+            parseSvgBoundingBox();
+            updateBtnStates();
+            log("SVGロード完了");
+          } else {
+            log("SVGデータの読み込みに失敗しました");
+          }
+        })
+        .catch(err => {
+          log("SVG取得エラー: " + err);
+        });
+    }
     function autoSelectMaterial(materialStr) {
       const select = document.getElementById('materialPreset');
       if (materialStr.includes("MDF")) select.value = "MDF3";
